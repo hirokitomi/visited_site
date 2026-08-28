@@ -140,13 +140,15 @@ rsync があれば rsync、無ければ tar + ssh で転送します。
 2回目以降の更新も同じコマンドでできます。
 
 ```sh
-SAKURA_HOST=あなたのアカウント名.sakura.ne.jp \
-SAKURA_USER=あなたのアカウント名 \
-SAKURA_PATH=www/visited \
-sh tools/deploy.sh
+sh tools/deploy.sh あなたのアカウント名.sakura.ne.jp あなたのアカウント名 www/visited
 ```
 
-- 何が転送されるか先に見たいときは `DRY_RUN=1` を付けてください
+- 何が転送されるか先に見たいときは末尾に `--dry-run` を付けてください
+- `sh tools/deploy.sh --help` で使い方が出ます
+- `--host` / `--user` / `--path` という書き方や、環境変数
+  `SAKURA_HOST` / `SAKURA_USER` / `SAKURA_PATH` でも指定できます。
+  環境変数を使う場合は**改行せず1行で**書いてください
+  （行末の `\` のあとに空白が入ると別々のコマンドとして実行され、変数が `sh` に渡りません）
 - `config.php` は転送対象から外してあるので、更新のたびに上書きされる心配はありません
 - 既存ファイルの削除は行いません（`--delete` は使っていません）
 

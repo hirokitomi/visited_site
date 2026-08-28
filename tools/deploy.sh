@@ -1,16 +1,16 @@
 #!/bin/sh
 # さくらのレンタルサーバへアップロードする。手元のPC(Mac/Linux)から実行してください。
 #
-#   SAKURA_HOST=example.sakura.ne.jp \
-#   SAKURA_USER=example \
-#   SAKURA_PATH=www/visited \
-#   sh tools/deploy.sh
+#   sh tools/deploy.sh <ホスト名> <アカウント名> [アップロード先]
 #
-# 環境変数:
-#   SAKURA_HOST  接続先ホスト名(例: example.sakura.ne.jp / 独自ドメインでも可)
-#   SAKURA_USER  さくらの初期ドメインのアカウント名
-#   SAKURA_PATH  アップロード先。ホームディレクトリからの相対パス(既定: www/visited)
-#   DRY_RUN=1    実際には転送せず、実行するコマンドだけ表示する
+# 例:
+#   sh tools/deploy.sh example.sakura.ne.jp example www/visited
+#   sh tools/deploy.sh --host example.sakura.ne.jp --user example --path www/visited
+#   sh tools/deploy.sh example.sakura.ne.jp example --dry-run
+#
+# 引数の代わりに環境変数 SAKURA_HOST / SAKURA_USER / SAKURA_PATH / DRY_RUN でも指定できます
+# (その場合は改行せず1行で書いてください。行末の "\" のあとに空白が入ると
+#  別々のコマンドとして実行され、変数が sh に渡りません)。
 #
 # アップロードするもの: index.php map.php .htaccess api/ lib/ assets/
 # アップロードしないもの:
@@ -24,10 +24,70 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
-: "${SAKURA_HOST:?SAKURA_HOST を指定してください (例: SAKURA_HOST=example.sakura.ne.jp)}"
-: "${SAKURA_USER:?SAKURA_USER を指定してください (例: SAKURA_USER=example)}"
-SAKURA_PATH=${SAKURA_PATH:-www/visited}
+usage() {
+  cat >&2 <<'USAGE'
+使い方:
+  sh tools/deploy.sh <ホスト名> <アカウント名> [アップロード先]
+
+  <ホスト名>        例: example.sakura.ne.jp (独自ドメインでも可)
+  <アカウント名>    さくらの初期ドメインのアカウント名
+  [アップロード先]  ホームディレクトリからの相対パス (既定: www/visited)
+
+オプション:
+  --host <値> / --user <値> / --path <値>
+  --dry-run   実際には転送せず、実行するコマンドだけ表示する
+  -h, --help  この使い方を表示する
+
+例:
+  sh tools/deploy.sh example.sakura.ne.jp example
+  sh tools/deploy.sh example.sakura.ne.jp example www/visited --dry-run
+USAGE
+}
+
+# 環境変数を初期値にし、引数があれば上書きする
+HOST=${SAKURA_HOST:-}
+USER_NAME=${SAKURA_USER:-}
+REMOTE_PATH=${SAKURA_PATH:-}
 DRY_RUN=${DRY_RUN:-0}
+POSITIONAL=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --host)     [ $# -ge 2 ] || { echo "エラー: --host に値がありません" >&2; exit 2; }; HOST=$2; shift 2 ;;
+    --host=*)   HOST=${1#*=}; shift ;;
+    --user)     [ $# -ge 2 ] || { echo "エラー: --user に値がありません" >&2; exit 2; }; USER_NAME=$2; shift 2 ;;
+    --user=*)   USER_NAME=${1#*=}; shift ;;
+    --path)     [ $# -ge 2 ] || { echo "エラー: --path に値がありません" >&2; exit 2; }; REMOTE_PATH=$2; shift 2 ;;
+    --path=*)   REMOTE_PATH=${1#*=}; shift ;;
+    --dry-run|-n) DRY_RUN=1; shift ;;
+    -h|--help)  usage; exit 0 ;;
+    -*)         echo "エラー: 不明なオプション: $1" >&2; usage; exit 2 ;;
+    *)
+      POSITIONAL=$((POSITIONAL + 1))
+      case $POSITIONAL in
+        1) HOST=$1 ;;
+        2) USER_NAME=$1 ;;
+        3) REMOTE_PATH=$1 ;;
+        *) echo "エラー: 引数が多すぎます: $1" >&2; usage; exit 2 ;;
+      esac
+      shift ;;
+  esac
+done
+
+# 貼り付け時に紛れ込んだ空白・改行を落とす(ホスト名やパスに空白は入らないため)
+trim() { printf '%s' "$1" | tr -d '[:space:]'; }
+HOST=$(trim "$HOST")
+USER_NAME=$(trim "$USER_NAME")
+REMOTE_PATH=$(trim "${REMOTE_PATH:-www/visited}")
+
+if [ -z "$HOST" ] || [ -z "$USER_NAME" ]; then
+  echo "エラー: ホスト名とアカウント名を指定してください。" >&2
+  echo >&2
+  usage
+  exit 2
+fi
+
+SAKURA_PATH=$REMOTE_PATH
 
 TARGETS="index.php map.php .htaccess api lib assets"
 
@@ -35,7 +95,7 @@ for t in $TARGETS; do
   [ -e "$t" ] || { echo "エラー: $t が見つかりません。リポジトリのルートで実行してください。" >&2; exit 1; }
 done
 
-REMOTE="$SAKURA_USER@$SAKURA_HOST"
+REMOTE="$USER_NAME@$HOST"
 
 run() {
   if [ "$DRY_RUN" = "1" ]; then
@@ -90,8 +150,8 @@ else
 <?php
 return [
     'db' => [
-        'dsn'  => 'mysql:host=mysql○○○.db.sakura.ne.jp;dbname=${SAKURA_USER}_visited;charset=utf8mb4',
-        'user' => '$SAKURA_USER',
+        'dsn'  => 'mysql:host=mysql○○○.db.sakura.ne.jp;dbname=${USER_NAME}_visited;charset=utf8mb4',
+        'user' => '$USER_NAME',
         'pass' => 'データベースのパスワード',
     ],
     'debug' => false,
