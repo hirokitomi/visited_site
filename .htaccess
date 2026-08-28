@@ -1,0 +1,36 @@
+# さくらのレンタルサーバ(Apache)向けの推奨設定。
+# サブディレクトリに設置する場合もこのファイルごとアップロードすればそのまま効きます。
+# 設定が使えない環境でも動くよう、すべて <IfModule> で囲んでいます。
+
+# 設定ファイルは PHP なので中身は表示されませんが、念のため直接アクセスを禁止する。
+<Files "config.php">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</Files>
+
+# 国境データ(約600KB)を gzip で配信する。転送量が 1/3 以下になります。
+<IfModule mod_mime.c>
+    AddType application/geo+json .geojson
+</IfModule>
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/json application/geo+json text/css application/javascript
+</IfModule>
+
+# 地図データと静的ファイルはしばらくキャッシュさせる。
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType application/geo+json "access plus 7 days"
+    ExpiresByType application/json     "access plus 1 days"
+    ExpiresByType text/css             "access plus 1 days"
+    ExpiresByType application/javascript "access plus 1 days"
+</IfModule>
+
+# PHP のエラーを画面に出さない(本番)。config.php の debug と合わせて二重に抑止する。
+<IfModule mod_php.c>
+    php_flag display_errors Off
+</IfModule>

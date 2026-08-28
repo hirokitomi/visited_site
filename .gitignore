@@ -1,0 +1,10 @@
+# 実際のDB接続情報。config.example.php をコピーして作る。
+/config.php
+
+# 地図データのビルド用一時ファイル(Natural Earth の生データなど)
+/tools/tmp/
+
+# ローカル動作確認用
+/tests/tmp/
+
+.DS_Store
