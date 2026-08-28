@@ -67,7 +67,10 @@ assets/
   countries.geojson       国境データ（232カ国・約600KB / 代表点とラベル表示ズームを含む）
   countries_ja.json       ISO 3166-1 alpha-2 -> 日本語国名（250件）
 
-tools/                  地図データの生成スクリプト（デプロイには不要）
+tools/
+  deploy.sh               さくらへアップロードするスクリプト（手元から実行）
+  build_map_data.sh       地図データの生成（通常は実行不要）
+  prepare_geojson.mjs / build_countries_ja.mjs / iso3166.mjs
 tests/                  API の動作確認スクリプト（デプロイには不要）
 ```
 
@@ -90,7 +93,8 @@ tests/                  API の動作確認スクリプト（デプロイには�
 
 ### 3. 設定ファイルを用意する
 
-`config.example.php` をコピーして `config.php` を作り、1.で控えた値を入れます。
+`config.php` の内容を決めます（実際に作るのは「5.」でサーバ上です）。
+ローカルで確認する場合は `config.example.php` をコピーして `config.php` を作ってください。
 
 ```php
 <?php
@@ -111,23 +115,66 @@ return [
 
 ### 4. ファイルをアップロードする
 
-FTP / SFTP クライアント（FileZilla など）で、`www/` 配下の任意のディレクトリ
-（例: `www/visited/`）に以下をアップロードします。
+`www/` 配下の任意のディレクトリ（例: `www/visited/`）に配置します。
 
 アップロードするもの:
 
 ```
-index.php  map.php  schema.sql  config.php  .htaccess
+index.php  map.php  .htaccess
 api/  lib/  assets/
 ```
 
-アップロード不要なもの: `tools/`、`tests/`、`config.example.php`、`README.md`
+アップロード不要なもの: `schema.sql`（phpMyAdmin で読み込むだけで、サーバに置く必要はありません）、
+`tools/`、`tests/`、`config.example.php`、`README.md`
 
+- `config.php` は次の「5.」で**サーバ上に直接作ります**。
+  手元の開発用設定を誤って本番に上書きしないためです
 - `assets/countries.geojson` は約600KBあります。転送が終わるまで待ってください
 - ディレクトリのパーミッションは 705、ファイルは 644 で問題ありません
 - 書き込み権限が必要なディレクトリはありません（データはすべて MySQL に入ります）
 
-### 5. 動作確認
+#### 方法A: コマンド1つで済ませる（推奨）
+
+手元の Mac / Linux から `tools/deploy.sh` を実行します。
+rsync があれば rsync、無ければ tar + ssh で転送します。
+2回目以降の更新も同じコマンドでできます。
+
+```sh
+SAKURA_HOST=あなたのアカウント名.sakura.ne.jp \
+SAKURA_USER=あなたのアカウント名 \
+SAKURA_PATH=www/visited \
+sh tools/deploy.sh
+```
+
+- 何が転送されるか先に見たいときは `DRY_RUN=1` を付けてください
+- `config.php` は転送対象から外してあるので、更新のたびに上書きされる心配はありません
+- 既存ファイルの削除は行いません（`--delete` は使っていません）
+
+さくらのスタンダードプランでは SSH が使えます。接続情報（ホスト名・ユーザ名・パスワード）は
+サーバコントロールパネルの「サーバ情報」で確認できます。
+
+#### 方法B: FTP / SFTP クライアントを使う
+
+FileZilla などで上記のファイルを `www/visited/` にドラッグ＆ドロップします。
+`api/`、`lib/`、`assets/` はディレクトリごとアップロードしてください。
+
+### 5. config.php をサーバ上に作る
+
+SSH でログインして作成します（DBのパスワードを含むのでリポジトリには置きません）。
+
+```sh
+ssh あなたのアカウント名@あなたのアカウント名.sakura.ne.jp
+cd www/visited
+vi config.php
+```
+
+中身は「3.」の内容です。保存したら `chmod 600 config.php` を実行しておくと安心です。
+
+FTP しか使わない場合は、手元で `config.example.php` をコピーして `config.php` を作り、
+本番の値を入れてからアップロードしてください（その場合、更新時に
+ローカルの開発用設定で上書きしないよう注意してください）。
+
+### 6. 動作確認
 
 1. `https://あなたのドメイン/visited/` を開き、グループ作成フォームが表示されることを確認
 2. メンバーを入れて「マップを作る」→ 専用URLが表示されれば DB 接続は成功しています
