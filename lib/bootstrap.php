@@ -48,5 +48,17 @@ require_once __DIR__ . '/db.php';
 // 想定外の例外は 500 + JSON で返す(本番では詳細を出さない)。
 set_exception_handler(static function (Throwable $e) use ($APP_DEBUG): void {
     error_log('[visited_site] ' . $e);
-    json_error(500, $APP_DEBUG ? $e->getMessage() : 'サーバ内部エラーが発生しました。');
+
+    if ($APP_DEBUG) {
+        json_error(500, $e->getMessage());
+    }
+
+    // 設置直後にいちばん多いのが DB の設定ミスとテーブル未作成。
+    // 接続情報そのものは出さずに、どこを見ればよいかだけ伝える。
+    if ($e instanceof PDOException) {
+        json_error(500, 'データベースに接続できないか、テーブルがありません。'
+            . 'config.php の接続情報と、schema.sql の取り込みを確認してください。');
+    }
+
+    json_error(500, 'サーバ内部エラーが発生しました。');
 });
