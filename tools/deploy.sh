@@ -83,6 +83,16 @@ HOST=$(trim "$HOST")
 USER_NAME=$(trim "$USER_NAME")
 REMOTE_PATH=$(trim "${REMOTE_PATH:-www/visited}")
 
+# リモートではシェルのクォートを2段またぐので、それを壊す文字は受け付けない
+for v in "$HOST" "$USER_NAME" "$REMOTE_PATH"; do
+  case "$v" in
+    *[!A-Za-z0-9._/@-]*)
+      echo "エラー: 使えない文字が含まれています: $v" >&2
+      echo "ホスト名・アカウント名・パスに使えるのは英数字と . _ - / @ です。" >&2
+      exit 2 ;;
+  esac
+done
+
 if [ -z "$HOST" ] || [ -z "$USER_NAME" ]; then
   echo "エラー: ホスト名とアカウント名を指定してください。" >&2
   echo >&2
@@ -114,8 +124,12 @@ echo
 
 # 転送先で実行する内容。展開と同時に config.php の有無も見て、
 # SSH 接続(=パスワード入力)が1回で済むようにする。
-REMOTE_SCRIPT="mkdir -p '$SAKURA_PATH' && tar xzf - -C '$SAKURA_PATH' && \
-if [ -f '$SAKURA_PATH/config.php' ]; then echo __CONFIG_PRESENT__; else echo __CONFIG_MISSING__; fi"
+#
+# 重要: さくらのレンタルサーバのログインシェルは csh で、sh の
+# "if [ ... ]; then ... fi" を解釈できない(if: Expression Syntax. になる)。
+# ログインシェルに依存しないよう、必ず /bin/sh -c で包んで実行する。
+# csh はシングルクォート内を展開しないので、中では二重引用符を使う。
+REMOTE_SCRIPT="mkdir -p \"$SAKURA_PATH\" && tar xzf - -C \"$SAKURA_PATH\" && if [ -f \"$SAKURA_PATH/config.php\" ]; then echo __CONFIG_PRESENT__; else echo __CONFIG_MISSING__; fi"
 
 if [ "$USE_RSYNC" = "1" ]; then
   # rsync はサーバ側にも必要。さくらのレンタルサーバには入っていないことがあるため既定では使わない。
@@ -126,18 +140,19 @@ if [ "$USE_RSYNC" = "1" ]; then
   else
     # shellcheck disable=SC2086
     rsync -avz --human-readable --exclude='.DS_Store' --exclude='config.php' \
-        --rsync-path="mkdir -p '$SAKURA_PATH' && rsync" \
+        --rsync-path="/bin/sh -c 'mkdir -p \"$SAKURA_PATH\"' && rsync" \
         $TARGETS "$REMOTE:$SAKURA_PATH/"
-    CONFIG_STATE=$(ssh "$REMOTE" "if [ -f '$SAKURA_PATH/config.php' ]; then echo __CONFIG_PRESENT__; else echo __CONFIG_MISSING__; fi")
+    CONFIG_STATE=$(ssh "$REMOTE" /bin/sh -c "'if [ -f \"$SAKURA_PATH/config.php\" ]; then echo __CONFIG_PRESENT__; else echo __CONFIG_MISSING__; fi'")
   fi
 else
   echo "tar + ssh で転送します(サーバ側に必要なのは tar だけです)"
   if [ "$DRY_RUN" = "1" ]; then
-    echo "[DRY_RUN] tar czf - $TARGETS | ssh $REMOTE \"$REMOTE_SCRIPT\""
+    echo "[DRY_RUN] tar czf - $TARGETS | ssh $REMOTE /bin/sh -c '$REMOTE_SCRIPT'"
     CONFIG_STATE=__DRY_RUN__
   else
     # shellcheck disable=SC2086
-    CONFIG_STATE=$(tar czf - --exclude='.DS_Store' $TARGETS | ssh "$REMOTE" "$REMOTE_SCRIPT")
+    CONFIG_STATE=$(tar czf - --exclude='.DS_Store' $TARGETS \
+      | ssh "$REMOTE" /bin/sh -c "'$REMOTE_SCRIPT'")
   fi
 fi
 

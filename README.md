@@ -148,6 +148,9 @@ sh tools/deploy.sh あなたのアカウント名.sakura.ne.jp あなたのア�
 
 - 転送は `tar` + `ssh` で行います（さくらの FreeBSD サーバに `rsync` が
   入っていないことがあるため）。SSH の接続は1回だけなので、パスワード入力も1回です
+- リモートで実行するコマンドは `/bin/sh -c` で包んでいます。
+  さくらのログインシェルは **csh** で、`if [ ... ]; then ... fi` のような
+  sh の構文をそのままでは解釈できない（`if: Expression Syntax.` になる）ためです
 - 何が転送されるか先に見たいときは末尾に `--dry-run` を付けてください
 - `sh tools/deploy.sh --help` で使い方が出ます
 - `--host` / `--user` / `--path` という書き方や、環境変数
@@ -175,7 +178,15 @@ cd www/visited
 vi config.php
 ```
 
-中身は「3.」の内容です。保存したら `chmod 600 config.php` を実行しておくと安心です。
+`vi` を使わずに作るなら、`cat > config.php` を実行してから内容を貼り付け、
+最後に Enter → `Ctrl+D` でも作成できます（パスワードがシェル履歴に残りません）。
+
+作成したら `chmod 600 config.php` と `php -l config.php` で確認してください。
+
+> **さくらのログインシェルは csh です。** `#` から後ろがコメントとして
+> 扱われないため、`php -l config.php  # 確認` のように書くと
+> `Could not open input file: #` というエラーが並びます。
+> コマンドだけを入力してください（`config.php` 自体には影響ありません）。
 
 FTP しか使わない場合は、手元で `config.example.php` をコピーして `config.php` を作り、
 本番の値を入れてからアップロードしてください（その場合、更新時に
