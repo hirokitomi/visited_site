@@ -22,6 +22,9 @@
   var map = null;
   var geoLayer = null;
   var markerLayer = null;
+  var labelLayer = null;
+  /** { marker, minZoom } の配列。国名ラベルはズームに応じて出し入れする */
+  var labelMarkers = [];
   /** 国コード -> ポリゴンの Leaflet レイヤ */
   var polygonByCode = new Map();
   /** 国コード -> 旗マーカー */
@@ -191,6 +194,50 @@
     });
   }
 
+  /**
+   * 国名ラベルを全国ぶん作る。
+   * どのズームから出すかは Natural Earth の MIN_LABEL(properties.z)に従う。
+   * ラベルはタップを拾わない(interactive: false)ので、国の選択を邪魔しない。
+   */
+  function buildLabels(geo) {
+    for (var i = 0; i < geo.features.length; i++) {
+      var p = geo.features[i].properties;
+
+      var span = document.createElement('span');
+      span.textContent = countryName(p.c);
+
+      var marker = L.marker([p.y, p.x], {
+        icon: L.divIcon({
+          html: span,
+          className: 'country-label',
+          iconSize: [0, 0],
+          iconAnchor: [0, 0]
+        }),
+        interactive: false,
+        keyboard: false,
+        // 旗マーカーより必ず下に描く
+        zIndexOffset: -10000
+      });
+      marker.addTo(labelLayer);
+
+      labelMarkers.push({
+        marker: marker,
+        minZoom: typeof p.z === 'number' ? p.z : 5
+      });
+    }
+    updateLabelVisibility();
+  }
+
+  /** 現在のズームで出してよいラベルだけを表示する。 */
+  function updateLabelVisibility() {
+    var zoom = map.getZoom();
+    for (var i = 0; i < labelMarkers.length; i++) {
+      var entry = labelMarkers[i];
+      var node = entry.marker.getElement();
+      if (node) { node.style.display = zoom >= entry.minZoom ? '' : 'none'; }
+    }
+  }
+
   /** 1つの国の旗マーカーを作り直す。 */
   function refreshMarker(code) {
     var existing = markerByCode.get(code);
@@ -259,7 +306,9 @@
       }
     }).addTo(map);
 
+    labelLayer = L.layerGroup().addTo(map);
     markerLayer = L.layerGroup().addTo(map);
+    buildLabels(geo);
 
     // 極端な高緯度を除いた世界全体が入る初期表示
     map.fitBounds([[-56, -168], [73, 178]], { padding: [4, 4] });
@@ -268,6 +317,7 @@
     renderAllMarkers();
 
     map.on('zoomend', function () {
+      updateLabelVisibility();
       if (detailedMode() !== lastDetailed) {
         lastDetailed = detailedMode();
         renderAllMarkers();

@@ -7,8 +7,10 @@
  *  - 南極・無人地域は除外 (tools/iso3166.mjs の EXCLUDED_CODES)
  *  - 同じ国コードの地物は 1 つの MultiPolygon に統合
  *    (例: オーストラリア本土 + アシュモア・カルティエ諸島 + インド洋地域)
- *  - properties は { c: 国コード, x: 代表点経度, y: 代表点緯度 } のみに削減
+ *  - properties は { c: 国コード, x: 代表点経度, y: 代表点緯度, z: ラベル表示ズーム } に削減
  *    代表点は Natural Earth が持つラベル位置 LABEL_X / LABEL_Y を使う
+ *    z は Natural Earth の MIN_LABEL(この国名を出してよい最小ズーム)。
+ *    ロシアや中国は早く、サンマリノやモナコは拡大時だけラベルが出るように調整されている
  *
  * 使い方: node tools/prepare_geojson.mjs <入力.geojson> <出力.geojson>
  */
@@ -53,17 +55,24 @@ for (const f of src.features) {
   const pop = Number(p.POP_EST) || 0;
   const entry = byCode.get(code);
   if (!entry) {
-    byCode.set(code, { code, polygons: [...polygons], pop, x: p.LABEL_X, y: p.LABEL_Y });
+    byCode.set(code, {
+      code, polygons: [...polygons], pop,
+      x: p.LABEL_X, y: p.LABEL_Y, minLabel: p.MIN_LABEL,
+    });
   } else {
     entry.polygons.push(...polygons);
     if (pop > entry.pop) { entry.pop = pop; entry.x = p.LABEL_X; entry.y = p.LABEL_Y; }
+    // 統合後は面積が広がるので、いちばん早く出せるラベルズームを採用する
+    if (Number.isFinite(p.MIN_LABEL) && !(entry.minLabel <= p.MIN_LABEL)) {
+      entry.minLabel = p.MIN_LABEL;
+    }
   }
 }
 
 const noLabel = [];
 const features = [...byCode.values()]
   .sort((a, b) => a.code.localeCompare(b.code))
-  .map(({ code, polygons, x, y }) => {
+  .map(({ code, polygons, x, y, minLabel }) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       // ラベル位置が無い場合は全頂点の平均を代表点にする
       let sx = 0, sy = 0, n = 0;
@@ -71,9 +80,16 @@ const features = [...byCode.values()]
       x = sx / n; y = sy / n;
       noLabel.push(code);
     }
+    // MIN_LABEL が無い地物は、拡大しないと出ない側に倒しておく
+    const labelZoom = Number.isFinite(minLabel) ? Math.round(minLabel * 10) / 10 : 5;
     return {
       type: 'Feature',
-      properties: { c: code, x: Math.round(x * 1e4) / 1e4, y: Math.round(y * 1e4) / 1e4 },
+      properties: {
+        c: code,
+        x: Math.round(x * 1e4) / 1e4,
+        y: Math.round(y * 1e4) / 1e4,
+        z: labelZoom,
+      },
       geometry: { type: 'MultiPolygon', coordinates: polygons },
     };
   });
