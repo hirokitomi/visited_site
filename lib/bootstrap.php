@@ -28,6 +28,20 @@ error_reporting(E_ALL);
 ini_set('display_errors', $APP_DEBUG ? '1' : '0');
 ini_set('log_errors', '1');
 
+// util.php は never 戻り値型を使うため PHP 8.1 以上が必要。
+// 古い PHP だと読み込んだ瞬間に parse error になるので、読み込む前に確認する。
+// (さくらのレンタルサーバではコントロールパネルの「PHP設定」でバージョンを選べます)
+if (PHP_VERSION_ID < 80100) {
+    http_response_code(500);
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<meta charset="utf-8"><h1>PHP のバージョンが古すぎます</h1>';
+    echo '<p>このアプリは PHP 8.1 以上が必要です。現在のバージョンは '
+        . htmlspecialchars(PHP_VERSION, ENT_QUOTES, 'UTF-8') . ' です。</p>';
+    echo '<p>さくらのレンタルサーバの場合、サーバコントロールパネルの'
+        . '「Webサイト/データ」→「スクリプト設定」→「PHP設定」で 8.1 以上を選んでください。</p>';
+    exit;
+}
+
 require_once __DIR__ . '/util.php';
 require_once __DIR__ . '/db.php';
 

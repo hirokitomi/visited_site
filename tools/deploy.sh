@@ -36,6 +36,7 @@ usage() {
 オプション:
   --host <値> / --user <値> / --path <値>
   --dry-run   実際には転送せず、実行するコマンドだけ表示する
+  --rsync     rsync で転送する(サーバ側にも rsync がある場合のみ)
   -h, --help  この使い方を表示する
 
 例:
@@ -49,6 +50,7 @@ HOST=${SAKURA_HOST:-}
 USER_NAME=${SAKURA_USER:-}
 REMOTE_PATH=${SAKURA_PATH:-}
 DRY_RUN=${DRY_RUN:-0}
+USE_RSYNC=${USE_RSYNC:-0}
 POSITIONAL=0
 
 while [ $# -gt 0 ]; do
@@ -60,6 +62,7 @@ while [ $# -gt 0 ]; do
     --path)     [ $# -ge 2 ] || { echo "エラー: --path に値がありません" >&2; exit 2; }; REMOTE_PATH=$2; shift 2 ;;
     --path=*)   REMOTE_PATH=${1#*=}; shift ;;
     --dry-run|-n) DRY_RUN=1; shift ;;
+    --rsync)      USE_RSYNC=1; shift ;;
     -h|--help)  usage; exit 0 ;;
     -*)         echo "エラー: 不明なオプション: $1" >&2; usage; exit 2 ;;
     *)
@@ -109,21 +112,32 @@ echo "アップロード先: $REMOTE:$SAKURA_PATH"
 echo "対象: $TARGETS"
 echo
 
-if command -v rsync >/dev/null 2>&1; then
-  echo "rsync で転送します(2回目以降は変更のあったファイルだけ送られます)"
-  # shellcheck disable=SC2086
-  run rsync -avz --human-readable \
-      --exclude='.DS_Store' --exclude='config.php' \
-      --rsync-path="mkdir -p '$SAKURA_PATH' && rsync" \
-      $TARGETS "$REMOTE:$SAKURA_PATH/"
-else
-  echo "rsync が無いので tar + ssh で転送します"
+# 転送先で実行する内容。展開と同時に config.php の有無も見て、
+# SSH 接続(=パスワード入力)が1回で済むようにする。
+REMOTE_SCRIPT="mkdir -p '$SAKURA_PATH' && tar xzf - -C '$SAKURA_PATH' && \
+if [ -f '$SAKURA_PATH/config.php' ]; then echo __CONFIG_PRESENT__; else echo __CONFIG_MISSING__; fi"
+
+if [ "$USE_RSYNC" = "1" ]; then
+  # rsync はサーバ側にも必要。さくらのレンタルサーバには入っていないことがあるため既定では使わない。
+  echo "rsync で転送します"
   if [ "$DRY_RUN" = "1" ]; then
-    echo "[DRY_RUN] tar czf - $TARGETS | ssh $REMOTE \"mkdir -p '$SAKURA_PATH' && tar xzf - -C '$SAKURA_PATH'\""
+    echo "[DRY_RUN] rsync -avz --exclude=.DS_Store --rsync-path=\"mkdir -p '$SAKURA_PATH' && rsync\" $TARGETS $REMOTE:$SAKURA_PATH/"
+    CONFIG_STATE=__DRY_RUN__
   else
     # shellcheck disable=SC2086
-    tar czf - --exclude='.DS_Store' $TARGETS \
-      | ssh "$REMOTE" "mkdir -p '$SAKURA_PATH' && tar xzf - -C '$SAKURA_PATH'"
+    rsync -avz --human-readable --exclude='.DS_Store' --exclude='config.php' \
+        --rsync-path="mkdir -p '$SAKURA_PATH' && rsync" \
+        $TARGETS "$REMOTE:$SAKURA_PATH/"
+    CONFIG_STATE=$(ssh "$REMOTE" "if [ -f '$SAKURA_PATH/config.php' ]; then echo __CONFIG_PRESENT__; else echo __CONFIG_MISSING__; fi")
+  fi
+else
+  echo "tar + ssh で転送します(サーバ側に必要なのは tar だけです)"
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "[DRY_RUN] tar czf - $TARGETS | ssh $REMOTE \"$REMOTE_SCRIPT\""
+    CONFIG_STATE=__DRY_RUN__
+  else
+    # shellcheck disable=SC2086
+    CONFIG_STATE=$(tar czf - --exclude='.DS_Store' $TARGETS | ssh "$REMOTE" "$REMOTE_SCRIPT")
   fi
 fi
 
@@ -131,11 +145,14 @@ echo
 echo "転送が終わりました。"
 
 # 初回は config.php がサーバ側に無いので気づけるようにしておく。
-if [ "$DRY_RUN" = "1" ]; then
-  echo "[DRY_RUN] ssh $REMOTE \"test -f '$SAKURA_PATH/config.php'\""
-elif ssh "$REMOTE" "test -f '$SAKURA_PATH/config.php'" 2>/dev/null; then
-  echo "config.php はサーバ上にあります。"
-else
+case "$CONFIG_STATE" in
+  *__CONFIG_PRESENT__*)
+    echo "config.php はサーバ上にあります。次の更新でも上書きしません。"
+    ;;
+  *__DRY_RUN__*)
+    echo "(DRY_RUN のため config.php の確認は行いませんでした)"
+    ;;
+  *)
   cat <<MSG
 
 まだ config.php がサーバにありません。初回だけ以下を実行して作成してください。
@@ -160,4 +177,5 @@ return [
 保存したら chmod 600 config.php を実行しておくと安心です。
 config.php はこのスクリプトでは転送しないので、以降の更新で上書きされることはありません。
 MSG
-fi
+    ;;
+esac
